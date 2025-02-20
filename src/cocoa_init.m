@@ -559,6 +559,8 @@ GLFWbool _glfwConnectCocoa(int platformID, _GLFWplatform* platform)
         .waitEvents = _glfwWaitEventsCocoa,
         .waitEventsTimeout = _glfwWaitEventsTimeoutCocoa,
         .postEmptyEvent = _glfwPostEmptyEventCocoa,
+        //Nio
+        _glfwSetWindowTitlebarNull,
         .getEGLPlatform = _glfwGetEGLPlatformCocoa,
         .getEGLNativeDisplay = _glfwGetEGLNativeDisplayCocoa,
         .getEGLNativeWindow = _glfwGetEGLNativeWindowCocoa,

@@ -406,6 +406,7 @@ struct _GLFWwndconfig
     GLFWbool      resizable;
     GLFWbool      visible;
     GLFWbool      decorated;
+    GLFWbool      titlebar;
     GLFWbool      focused;
     GLFWbool      autoIconify;
     GLFWbool      floating;
@@ -565,6 +566,7 @@ struct _GLFWwindow
 
     struct {
         GLFWwindowposfun          pos;
+        GLFWtitlebarhittestfun    tbhittest;
         GLFWwindowsizefun         size;
         GLFWwindowclosefun        close;
         GLFWwindowrefreshfun      refresh;
@@ -751,6 +753,8 @@ struct _GLFWplatform
     void (*waitEvents)(void);
     void (*waitEventsTimeout)(double);
     void (*postEmptyEvent)(void);
+    // Nio
+    void (*setWindowTitlebar)(_GLFWwindow*,GLFWbool);
     // EGL
     EGLenum (*getEGLPlatform)(EGLint**);
     EGLNativeDisplayType (*getEGLNativeDisplay)(void);
