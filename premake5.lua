@@ -40,6 +40,7 @@ project "GLFW"
 			"src/xkb_unicode.c",
 			"src/posix_module.c",
 			"src/posix_time.c",
+			"src/posix_poll.c",
 			"src/posix_thread.c",
 			"src/posix_module.c",
 			"src/glx_context.c",
