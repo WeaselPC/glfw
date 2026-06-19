@@ -596,6 +596,8 @@ static void detectEWMH(void)
         getAtomIfSupported(supportedAtoms, atomCount, "_NET_FRAME_EXTENTS");
     _glfw.x11.NET_REQUEST_FRAME_EXTENTS =
         getAtomIfSupported(supportedAtoms, atomCount, "_NET_REQUEST_FRAME_EXTENTS");
+    _glfw.x11.NET_WM_MOVERESIZE =
+        getAtomIfSupported(supportedAtoms, atomCount, "_NET_WM_MOVERESIZE");
 
     if (supportedAtoms)
         XFree(supportedAtoms);

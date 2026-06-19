@@ -531,6 +531,8 @@ typedef struct _GLFWwindowX11
     GLFWbool        iconified;
     GLFWbool        maximized;
 
+    unsigned int    resizeCursorShape;
+
     // Whether the visual supports framebuffer transparency
     GLFWbool        transparent;
 
@@ -614,6 +616,7 @@ typedef struct _GLFWlibraryX11
     Atom            NET_ACTIVE_WINDOW;
     Atom            NET_FRAME_EXTENTS;
     Atom            NET_REQUEST_FRAME_EXTENTS;
+    Atom            NET_WM_MOVERESIZE;
     Atom            MOTIF_WM_HINTS;
 
     // Xdnd (drag and drop) atoms

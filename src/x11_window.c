@@ -627,7 +627,7 @@ static GLFWbool createNativeWindow(_GLFWwindow* window,
                  _glfw.x11.context,
                  (XPointer) window);
 
-    if (!wndconfig->decorated)
+    if (!wndconfig->decorated || !wndconfig->titlebar)
         _glfwSetWindowDecoratedX11(window, GLFW_FALSE);
 
     if (_glfw.x11.NET_WM_STATE && !window->monitor)
@@ -1141,6 +1141,114 @@ static void releaseMonitor(_GLFWwindow* window)
     }
 }
 
+// _NET_WM_MOVERESIZE directions (EWMH)
+#define _NET_WM_MOVERESIZE_SIZE_TOPLEFT     0
+#define _NET_WM_MOVERESIZE_SIZE_TOP         1
+#define _NET_WM_MOVERESIZE_SIZE_TOPRIGHT    2
+#define _NET_WM_MOVERESIZE_SIZE_RIGHT       3
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT 4
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOM      5
+#define _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT  6
+#define _NET_WM_MOVERESIZE_SIZE_LEFT        7
+#define _NET_WM_MOVERESIZE_MOVE             8
+
+#define _GLFW_X11_RESIZE_BORDER 4
+
+static int resizeBorderDirectionX11(_GLFWwindow* window, int x, int y)
+{
+    int width, height;
+    _glfwGetWindowSizeX11(window, &width, &height);
+
+    const int b = _GLFW_X11_RESIZE_BORDER;
+    enum { left = 1, top = 2, right = 4, bottom = 8 };
+    int hit = 0;
+    if (x <= b)           hit |= left;
+    if (x >= width - b)   hit |= right;
+    if (y <= b)           hit |= top;
+    if (y >= height - b)  hit |= bottom;
+
+    if ((hit & top) && (hit & left))     return _NET_WM_MOVERESIZE_SIZE_TOPLEFT;
+    if ((hit & top) && (hit & right))    return _NET_WM_MOVERESIZE_SIZE_TOPRIGHT;
+    if ((hit & bottom) && (hit & left))  return _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT;
+    if ((hit & bottom) && (hit & right)) return _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT;
+    if (hit & left)                      return _NET_WM_MOVERESIZE_SIZE_LEFT;
+    if (hit & top)                       return _NET_WM_MOVERESIZE_SIZE_TOP;
+    if (hit & right)                     return _NET_WM_MOVERESIZE_SIZE_RIGHT;
+    if (hit & bottom)                    return _NET_WM_MOVERESIZE_SIZE_BOTTOM;
+    return -1;
+}
+
+static unsigned int resizeCursorShapeX11(int direction)
+{
+    switch (direction)
+    {
+        case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:     return XC_top_left_corner;
+        case _NET_WM_MOVERESIZE_SIZE_TOP:         return XC_top_side;
+        case _NET_WM_MOVERESIZE_SIZE_TOPRIGHT:    return XC_top_right_corner;
+        case _NET_WM_MOVERESIZE_SIZE_RIGHT:       return XC_right_side;
+        case _NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT: return XC_bottom_right_corner;
+        case _NET_WM_MOVERESIZE_SIZE_BOTTOM:      return XC_bottom_side;
+        case _NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:  return XC_bottom_left_corner;
+        case _NET_WM_MOVERESIZE_SIZE_LEFT:        return XC_left_side;
+        default:                                  return 0;
+    }
+}
+
+static void updateResizeCursorX11(_GLFWwindow* window, int x, int y)
+{
+    static Cursor cache[XC_num_glyphs];
+
+    const int dir = resizeBorderDirectionX11(window, x, y);
+    const unsigned int shape = resizeCursorShapeX11(dir);
+
+    if (shape == window->x11.resizeCursorShape)
+        return;
+
+    if (shape == 0)
+    {
+        updateCursorImage(window);
+    }
+    else
+    {
+        if (!cache[shape])
+            cache[shape] = XCreateFontCursor(_glfw.x11.display, shape);
+        XDefineCursor(_glfw.x11.display, window->x11.handle, cache[shape]);
+    }
+
+    window->x11.resizeCursorShape = shape;
+}
+
+static void startMoveResizeX11(_GLFWwindow* window, int direction)
+{
+    if (!_glfw.x11.NET_WM_MOVERESIZE)
+        return;
+
+    Window root, child;
+    int rootX, rootY, winX, winY;
+    unsigned int mask;
+    XQueryPointer(_glfw.x11.display, window->x11.handle,
+                  &root, &child, &rootX, &rootY, &winX, &winY, &mask);
+
+    XUngrabPointer(_glfw.x11.display, CurrentTime);
+    XFlush(_glfw.x11.display);
+
+    XEvent xev;
+    memset(&xev, 0, sizeof(xev));
+    xev.type = ClientMessage;
+    xev.xclient.window = window->x11.handle;
+    xev.xclient.message_type = _glfw.x11.NET_WM_MOVERESIZE;
+    xev.xclient.format = 32;
+    xev.xclient.data.l[0] = rootX;
+    xev.xclient.data.l[1] = rootY;
+    xev.xclient.data.l[2] = direction;
+    xev.xclient.data.l[3] = Button1;
+    xev.xclient.data.l[4] = 1;
+
+    XSendEvent(_glfw.x11.display, _glfw.x11.root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xev);
+    XFlush(_glfw.x11.display);
+}
+
 // Process the specified X event
 //
 static void processEvent(XEvent *event)
@@ -1357,6 +1465,30 @@ static void processEvent(XEvent *event)
         {
             const int mods = translateState(event->xbutton.state);
 
+            // Start a WM-driven move/resize for presses on a custom-titlebar
+            // window's resize border or caption; other presses fall through
+            if (event->xbutton.button == Button1 &&
+                !window->titlebar && !window->x11.maximized)
+            {
+                const int px = event->xbutton.x;
+                const int py = event->xbutton.y;
+
+                const int dir = resizeBorderDirectionX11(window, px, py);
+                if (dir >= 0)
+                {
+                    startMoveResizeX11(window, dir);
+                    return;
+                }
+
+                int titlebarHit = 0;
+                _glfwInputTitlebarHitTest(window, px, py, &titlebarHit);
+                if (titlebarHit)
+                {
+                    startMoveResizeX11(window, _NET_WM_MOVERESIZE_MOVE);
+                    return;
+                }
+            }
+
             if (event->xbutton.button == Button1)
                 _glfwInputMouseClick(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, mods);
             else if (event->xbutton.button == Button2)
@@ -1476,6 +1608,18 @@ static void processEvent(XEvent *event)
                 }
                 else
                     _glfwInputCursorPos(window, x, y);
+            }
+
+            // Provide resize cursors over a custom-titlebar window's borders
+            if (!window->titlebar && !window->x11.maximized &&
+                window->cursorMode == GLFW_CURSOR_NORMAL)
+            {
+                updateResizeCursorX11(window, x, y);
+            }
+            else if (window->x11.resizeCursorShape != 0)
+            {
+                updateCursorImage(window);
+                window->x11.resizeCursorShape = 0;
             }
 
             window->x11.lastCursorPosX = x;
@@ -2645,9 +2789,8 @@ void _glfwSetWindowDecoratedX11(_GLFWwindow* window, GLFWbool enabled)
 
 void _glfwPlatformSetWindowTitlebar(_GLFWwindow* window, GLFWbool enabled)
 {
-    // TODO
-    _glfwInputError(GLFW_PLATFORM_ERROR,
-        "X11: Window attribute setting not implemented yet");
+    window->titlebar = enabled;
+    _glfwSetWindowDecoratedX11(window, enabled ? window->decorated : GLFW_FALSE);
 }
 
 void _glfwSetWindowFloatingX11(_GLFWwindow* window, GLFWbool enabled)
