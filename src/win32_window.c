@@ -2303,7 +2303,13 @@ void _glfwPollEventsWin32(void)
     handle = GetActiveWindow();
     if (handle)
     {
-        window = GetPropW(handle, L"GLFW");
+        // An attached input queue can make another process's GLFW window active here,
+        // and its "GLFW" prop is a pointer into that process; match our own windows instead
+        for (window = _glfw.windowListHead;  window;  window = window->next)
+        {
+            if (window->win32.handle == handle)
+                break;
+        }
         if (window)
         {
             int i;
